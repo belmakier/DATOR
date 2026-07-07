@@ -47,6 +47,7 @@ namespace DATOR {
       std::ifstream infile(fn);
       if (!infile.is_open()) { std::cerr << fn << " not found!" << std::endl; return -1; }
       
+
       int indx;
       std::string path;
       // using a trailing string allows to have end of line comments
@@ -62,8 +63,10 @@ namespace DATOR {
         }
         std::stringstream st(tline);
         st >> indx >> path >> trailing;
+
         // uncomment if you want explicit output of the run numbers!
         // std::cout << "Run num: " << indx << " Path: " << path << " Trailing: " << trailing << std::endl;
+
         
         if (runNos.size()>0) {
           if (runNos[runNos.size()-1] == indx) {
@@ -96,82 +99,76 @@ namespace DATOR {
     
    */
   int Reader::NextFile() {
-    fileIndx += 1;
-    //past the end of the list of files, return
-    if (fCompressed) {
-      if (fileIndx >= (int)runPaths.size()) {
-        if (DataFile != 0) { gzclose(gDataFile); DataFile = NULL; }
-        if (PrunedFile != 0) { gzclose(gPrunedFile); PrunedFile = NULL; }
-        return 0;
-      }
-    }
-    else {
-      if (fileIndx >= (int)runPaths.size()) {
-        if (DataFile != 0) { fclose(DataFile); DataFile = NULL; }
-        if (PrunedFile != 0) { fclose(PrunedFile); PrunedFile = NULL; }
-        return 0;
-      }
-    }
-
-    if (fileIndx != currFileIndx) {  //TOOD: proper treatement of pruned output files when re-reading
-      //close old file    
+    while(true){
+      fileIndx += 1;
       if (fCompressed) {
         if (DataFile != 0) { gzclose(gDataFile); }
         if (PrunedFile != 0) { gzclose(gPrunedFile); }
+      } else {
+        if (DataFile != 0) { fclose(DataFile); }
+        if (PrunedFile != 0) { fclose(PrunedFile); }
+      }
+      if (fileIndx >= (int)runPaths.size()) {
+        return 0;
       }
 
-      //open new file
       DataFile = fopen(runPaths[fileIndx].c_str(), "r");
-      if (!DataFile) { std::cerr << "File " << runPaths[fileIndx] << " does not exist!" << std::endl; return 0; }
-      if (PrunedOutput) {
-        if (!prunedPaths[fileIndx].compare(runPaths[fileIndx])) { std::cerr << "Pruned file (output) is the same as input file!" << std::endl; exit(1); }
-        PrunedFile = fopen((prunedPaths[fileIndx]).c_str(), "w");
-      }
-      else {
-        PrunedFile = NULL;
-      }
+      if (!DataFile) { std::cerr << "File " << runPaths[fileIndx] << " does not exist! Trying next!" << std::endl;}
 
-      if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-7).compare(".dat.gz")) {
-        fCompressed = true;
+      if(DataFile != 0){
+        break;
       }
-      else if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-4).compare(".dat")) {
-        fCompressed = false;
-      }
-      else {
-        std::cout << "Warning! Unrecognized file extension" << std::endl;
-      }
-
-      if (fCompressed) {
-        gDataFile = gzdopen(fileno(DataFile), "r");
-        if (PrunedOutput) {
-          gPrunedFile = gzdopen(fileno(PrunedFile), "w");
-        }
-      }
-
-      std::fseek(DataFile, 0L, SEEK_END);
-      fileSize = std::ftell(DataFile);
-      std::rewind(DataFile);
-
-      if (fileBuffer) {
-        //read whole file into buffer
-        std::cout << "Reading file into memory: " << fileSize << " bytes " << std::flush;
-        if (buffer) { delete buffer; buffer = NULL; }
-        buffer = new unsigned short int[fileSize/2];
-        buffPtr = 0;
-        if (fCompressed) {      
-          if (gzread(gDataFile, &buffer[0], fileSize) == 0) {
-            return 0;
-          }
-        }
-        else {
-          if (fread(&buffer[0], fileSize, 1, DataFile) == 0) {
-            return 0;
-          }
-        }
-        std::cout << "...done" << std::endl;
-      }
-      currFileIndx = fileIndx;
     }
+
+    if (PrunedOutput) {
+      if (!prunedPaths[fileIndx].compare(runPaths[fileIndx])) { std::cerr << "Pruned file (output) is the same as input file!" << std::endl; exit(1); }
+      PrunedFile = fopen((prunedPaths[fileIndx]).c_str(), "w");
+    }
+    else {
+      PrunedFile = NULL;
+    }
+
+    if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-7).compare(".dat.gz")) {
+      fCompressed = true;
+    }
+    else if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-4).compare(".dat")) {
+      fCompressed = false;
+    }
+    else {
+      std::cout << "Warning! Unrecognized file extension" << std::endl;
+    }
+
+    if (fCompressed) {
+      gDataFile = gzdopen(fileno(DataFile), "r");
+      if (PrunedOutput) {
+        gPrunedFile = gzdopen(fileno(PrunedFile), "w");
+      }
+    }
+
+    std::fseek(DataFile, 0L, SEEK_END);
+    fileSize = std::ftell(DataFile);
+    std::rewind(DataFile);
+
+    if (fileBuffer) {
+      //read whole file into buffer
+      std::cout << "Reading file into memory: " << fileSize << " bytes " << std::flush;
+      if (buffer) { delete buffer; buffer = NULL; }
+      buffer = new unsigned short int[fileSize/2];
+      buffPtr = 0;
+      if (fCompressed) {      
+        if (gzread(gDataFile, &buffer[0], fileSize) == 0) {
+          return 0;
+        }
+      }
+      else {
+        if (fread(&buffer[0], fileSize, 1, DataFile) == 0) {
+          return 0;
+        }
+      }
+      std::cout << "...done" << std::endl;
+    }
+
+    currFileIndx = fileIndx;
 
     Reset();
 
@@ -426,26 +423,48 @@ namespace DATOR {
 
   /*! Print summary of sorting, usually at the end of each file. This function calls Processor::PrintSummary for each processor loaded.
    */
-  int Reader::PrintSummary(std::ostream &out) {
+  int Reader::PrintSummary(std::ostream &out, bool use_ansi_colors) {
     double duration = (double)(std::chrono::duration_cast <std::chrono::microseconds> (stop_time - start_time).count());
-    
-    out << "================= " << ANSI_COLOR_GREEN << nEvents << ANSI_COLOR_RESET << " events sorted in " << ANSI_COLOR_GREEN << (int)duration/1000000 << " s " << ANSI_COLOR_RESET << "================= " << std::endl;
-    out << "   " << ANSI_COLOR_RED << nOutOfOrder << ANSI_COLOR_RESET << " out of time-order" << std::endl;
-    
-    for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
-      if (nGEBTypes[geb] > 0) {
-        out << "   Type " << geb << ": " << ANSI_COLOR_GREEN << nGEBTypes[geb] << ANSI_COLOR_RESET << " sub-events" << std::endl;
-      }
-    }
-    
-    out << "   Run was " << ANSI_COLOR_GREEN << walltime-starttime << ANSI_COLOR_RESET <<" min long from timestamps" << std::endl;
-    out << std::setprecision(6);
+    if(use_ansi_colors){
+      out << "================= " << ANSI_COLOR_GREEN << nEvents << ANSI_COLOR_RESET << " events sorted in " << ANSI_COLOR_GREEN << (int)duration/1000000 << " s " << ANSI_COLOR_RESET << "================= " << std::endl;
+      out << "   " << ANSI_COLOR_RED << nOutOfOrder << ANSI_COLOR_RESET << " out of time-order" << std::endl;
 
-    for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
-      for (size_t i=0; i<processors[geb].size(); ++i) {
-        processors[geb][i]->PrintSummary(out);
+      for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
+        if (nGEBTypes[geb] > 0) {
+          out << "   Type " << geb << ": " << ANSI_COLOR_GREEN << nGEBTypes[geb] << ANSI_COLOR_RESET << " sub-events" << std::endl;
+        }
+      }
+      
+      out << "   Run was " << ANSI_COLOR_GREEN << walltime-starttime << ANSI_COLOR_RESET <<" min long from timestamps" << std::endl;
+      out << std::setprecision(6);
+
+      for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
+        for (size_t i=0; i<processors[geb].size(); ++i) {
+          processors[geb][i]->PrintSummary(out);
+        }
+      }
+    } else {
+      out << "================= " << nEvents  << " events sorted in " << (int)duration/1000000 << " s " << "================= " << std::endl;
+      out << "   " << nOutOfOrder << " out of time-order" << std::endl;
+
+      for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
+        if (nGEBTypes[geb] > 0) {
+          out << "   Type " << geb << ": " << nGEBTypes[geb] << " sub-events" << std::endl;
+        }
+      }
+      
+      out << "   Run was " << walltime-starttime <<" min long from timestamps" << std::endl;
+      out << std::setprecision(6);
+
+      for (int geb=0; geb<MAX_GEB_TYPE; ++geb) {
+        for (size_t i=0; i<processors[geb].size(); ++i) {
+          processors[geb][i]->PrintSummary(out);
+        }
       }
     }
+    
+    
+    
 
     /*
     out << "   " << ANSI_COLOR_YELLOW << nValidGretina << ANSI_COLOR_RESET << "/" << ANSI_COLOR_GREEN << nGretinaHits << ANSI_COLOR_RESET
