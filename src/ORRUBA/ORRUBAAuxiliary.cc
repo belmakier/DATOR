@@ -118,7 +118,8 @@ namespace Orruba {
     //ss.str(date);    
     //ss >> std::get_time(&t, "%d-%b-%y%t%H:%M:%S");
     //if (ss.fail()) { std::cerr << "Parsing of date failed!" << std::endl; }    
-    if (!strptime(time.c_str(), "%d-%b-%y%t%H:%M:%S", &t)) {
+    if (!strptime(date.c_str(), "%d-%b-%y%t%H:%M:%S", &t)) {
+      std::cerr << date.c_str() << std::endl;
       std::cerr << "Parsing of date failed!" << std::endl; 
     }
     time_since_epoch = std::mktime(&t);

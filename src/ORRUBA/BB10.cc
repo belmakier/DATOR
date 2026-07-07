@@ -76,6 +76,7 @@ namespace Orruba {
                                             layer,
                                             frontHits[i].cal, true);
       part->MakeCoords(this);
+      part->SetRaw(0,frontHits[i].value, 0);
       single_parts.push_back(part);
       nparts += 1;
     }

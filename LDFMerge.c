@@ -157,6 +157,7 @@ int ReadGEB(struct cFile *file, struct GEBHeader *header, unsigned long long *di
   unsigned int sub[8192];
   while (true) {
     if (!compressed) {
+      //printf("reading GEB header with size %i\n", sizeof(*header));
       retval = fread(header, sizeof(*header), 1, file->ptr);
     }
     else {
@@ -225,7 +226,13 @@ int main(int argc, const char **argv) {
   struct cFile gebfile;
   struct cFile outfile;
  
+  gebfile.ptr = NULL;
+  
   gebfile.ptr = fopen(argv[1], "r");
+  if (gebfile.ptr == NULL) { 
+    printf("File %s could not be opened\n",argv[1]);
+    exit(1);
+  }
   if (compressed) { gebfile.gzf = gzdopen(fileno(gebfile.ptr), "r"); }
   FILE *ldffile = fopen(argv[2], "r");
   // this next block allows selecting an output path

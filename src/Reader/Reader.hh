@@ -181,6 +181,10 @@ namespace DATOR {
     int coinc_window; /**< Rolling coincidence window in nanoseconds */
     static double Dither; /**< Dither for general use */
 
+    bool fileBuffer; /**< Option to buffer whole file at once */
+    unsigned short int *buffer; /**< Buffer to contain a whole file */
+    long long int buffPtr; /**< Index to keep track of how far through the buffer we are */
+    int currFileIndx; /**< Index of the current file in memory */
     int subevt; /**< Sub-event counter for within current event */
     GEBHeader headers[MAX_GEB_SUBEVTS]; /**< Buffer of GEB headers in current event */
     unsigned int sub[MAX_GEB_SUBEVTS][MAX_GEB_PAYLOAD]; /**< Buffer of GEB payloads in current event */
@@ -245,7 +249,11 @@ namespace DATOR {
                starttime(0),
                walltime(0),
                run_wt_offset(0),
-               warning(false)
+               warning(false),
+               fileBuffer(0),
+               buffer(0),
+               buffPtr(0),
+               currFileIndx(-1)
       
     {}
     
@@ -259,6 +267,7 @@ namespace DATOR {
     void Reset();
     void Start();
     void Stop();
+    void Restart();
     int GetRunNo();
     /*! Get wall time */
     double GetWallTime() { return walltime; }

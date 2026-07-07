@@ -19,7 +19,7 @@ export LIBS
 export LIBDIR
 export INSTALLDIR
 
-all: libReader libGRETINA libORRUBA libS800 LDFMerge LDFConvert
+all: libReader libGRETINA libORRUBA libS800 libNSCL LDFMerge LDFConvert
 
 
 prepdir :
@@ -40,6 +40,8 @@ libORRUBA : libReader
 libS800 : libReader
 	cd src/S800 && $(MAKE)
 
+libNSCL : libReader
+	cd src/NSCL && $(MAKE)
 
 LDFMerge : prepdir LDFMerge.c
 	$(C) -std=c99 -O3 -o $(BINDIR)LDFMerge LDFMerge.c -lz
@@ -47,7 +49,7 @@ LDFMerge : prepdir LDFMerge.c
 LDFConvert : prepdir LDFConvert.c
 	$(C) -std=c99 -O3 -o $(BINDIR)LDFConvert LDFConvert.c -lz
 
-all : libReader libGRETINA libORRUBA libS800 LDFMerge LDFConvert
+all : libReader libGRETINA libORRUBA libS800 libNSCL LDFMerge LDFConvert
 
 install : all
 	cp -r $(BUILDDIR)/* $(INSTALLDIR)

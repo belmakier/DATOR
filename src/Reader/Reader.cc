@@ -97,75 +97,107 @@ namespace DATOR {
    */
   int Reader::NextFile() {
     fileIndx += 1;
+    //past the end of the list of files, return
     if (fCompressed) {
       if (fileIndx >= (int)runPaths.size()) {
+        if (DataFile != 0) { gzclose(gDataFile); DataFile = NULL; }
+        if (PrunedFile != 0) { gzclose(gPrunedFile); PrunedFile = NULL; }
+        return 0;
+      }
+    }
+    else {
+      if (fileIndx >= (int)runPaths.size()) {
+        if (DataFile != 0) { fclose(DataFile); DataFile = NULL; }
+        if (PrunedFile != 0) { fclose(PrunedFile); PrunedFile = NULL; }
+        return 0;
+      }
+    }
+
+    if (fileIndx != currFileIndx) {  //TOOD: proper treatement of pruned output files when re-reading
+      //close old file    
+      if (fCompressed) {
         if (DataFile != 0) { gzclose(gDataFile); }
         if (PrunedFile != 0) { gzclose(gPrunedFile); }
-        return 0;
       }
-    }
-    else {
-      if (fileIndx >= (int)runPaths.size()) {
-        if (DataFile != 0) { fclose(DataFile); }
-        if (PrunedFile != 0) { fclose(PrunedFile); }
-        return 0;
-      }
-    }
 
-    if (fCompressed) {
-      if (DataFile != 0) { gzclose(gDataFile); }
-      if (PrunedFile != 0) { gzclose(gPrunedFile); }
-    }
-    
-    DataFile = fopen(runPaths[fileIndx].c_str(), "r");
-    if (!DataFile) { std::cerr << "File " << runPaths[fileIndx] << " does not exist!" << std::endl; return 0; }
-    if (PrunedOutput) {
-      if (!prunedPaths[fileIndx].compare(runPaths[fileIndx])) { std::cerr << "Pruned file (output) is the same as input file!" << std::endl; exit(1); }
-      PrunedFile = fopen((prunedPaths[fileIndx]).c_str(), "w");
-    }
-    else {
-      PrunedFile = NULL;
-    }
-
-    if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-7).compare(".dat.gz")) {
-      fCompressed = true;
-    }
-    else if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-4).compare(".dat")) {
-      fCompressed = false;
-    }
-    else {
-      std::cout << "Warning! Unrecognized file extension" << std::endl;
-    }
-    
-    if (fCompressed) {
-      gDataFile = gzdopen(fileno(DataFile), "r");
+      //open new file
+      DataFile = fopen(runPaths[fileIndx].c_str(), "r");
+      if (!DataFile) { std::cerr << "File " << runPaths[fileIndx] << " does not exist!" << std::endl; return 0; }
       if (PrunedOutput) {
-        gPrunedFile = gzdopen(fileno(PrunedFile), "w");
+        if (!prunedPaths[fileIndx].compare(runPaths[fileIndx])) { std::cerr << "Pruned file (output) is the same as input file!" << std::endl; exit(1); }
+        PrunedFile = fopen((prunedPaths[fileIndx]).c_str(), "w");
       }
+      else {
+        PrunedFile = NULL;
+      }
+
+      if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-7).compare(".dat.gz")) {
+        fCompressed = true;
+      }
+      else if (!runPaths[fileIndx].substr(runPaths[fileIndx].size()-4).compare(".dat")) {
+        fCompressed = false;
+      }
+      else {
+        std::cout << "Warning! Unrecognized file extension" << std::endl;
+      }
+
+      if (fCompressed) {
+        gDataFile = gzdopen(fileno(DataFile), "r");
+        if (PrunedOutput) {
+          gPrunedFile = gzdopen(fileno(PrunedFile), "w");
+        }
+      }
+
+      std::fseek(DataFile, 0L, SEEK_END);
+      fileSize = std::ftell(DataFile);
+      std::rewind(DataFile);
+
+      if (fileBuffer) {
+        //read whole file into buffer
+        std::cout << "Reading file into memory: " << fileSize << " bytes " << std::flush;
+        if (buffer) { delete buffer; buffer = NULL; }
+        buffer = new unsigned short int[fileSize/2];
+        buffPtr = 0;
+        if (fCompressed) {      
+          if (gzread(gDataFile, &buffer[0], fileSize) == 0) {
+            return 0;
+          }
+        }
+        else {
+          if (fread(&buffer[0], fileSize, 1, DataFile) == 0) {
+            return 0;
+          }
+        }
+        std::cout << "...done" << std::endl;
+      }
+      currFileIndx = fileIndx;
     }
-    
+
+    Reset();
+
     if (ts_mode == 0) {
       run_wt_offset += walltime;
     }    
-    
-    Reset();
-
-    std::fseek(DataFile, 0L, SEEK_END);
-    fileSize = std::ftell(DataFile);
-    std::rewind(DataFile);
 
     time_last = std::chrono::system_clock::now();
     eof = false;
+    buffPtr = 0;
 
     //read first header
-    if (fCompressed) {      
-      if (gzread(gDataFile, &headers[0], sizeof(headers[0])) == 0) {
-        return 0;
-      }
+    if (fileBuffer) {
+      std::memcpy(&headers[0], &buffer[0], sizeof(headers[0]));
+      buffPtr += sizeof(headers[0])/2;
     }
     else {
-      if (fread(&headers[0], sizeof(headers[0]), 1, DataFile) == 0) {
-        return 0;
+      if (fCompressed) {      
+        if (gzread(gDataFile, &headers[0], sizeof(headers[0])) == 0) {
+          return 0;
+        }
+      }
+      else {
+        if (fread(&headers[0], sizeof(headers[0]), 1, DataFile) == 0) {
+          return 0;
+        }
       }
     }
     
@@ -179,12 +211,17 @@ namespace DATOR {
   void Reader::PrintUpdate(std::ostream &out) {
     
     double perc_complete;
-    if (fCompressed) {
-      perc_complete = 100.0*(float)((float)gzoffset(gDataFile))/fileSize;
+    if (fileBuffer) {
+      perc_complete = 100.0*(float)((float)buffPtr/((float)fileSize/2));
     }
-    else {
-      perc_complete = 100.0*(float)((float)ftell(DataFile))/fileSize;
-    }
+    else { 
+      if (fCompressed) {
+        perc_complete = 100.0*(float)((float)gzoffset(gDataFile))/fileSize;
+      }
+      else {
+        perc_complete = 100.0*(float)((float)ftell(DataFile))/fileSize;
+      }
+    } 
     auto time_now = std::chrono::system_clock::now();
     double evt_diff = nEvents - nEventsLast;
     double diff = double(std::chrono::duration_cast <std::chrono::microseconds> (time_now - time_last).count());
@@ -233,6 +270,11 @@ namespace DATOR {
     stop_time = std::chrono::system_clock::now();
   }
 
+  /*! Restart, go back to the beginning of the file */
+  void Reader::Restart() {
+    fileIndx=-1;
+  }
+
   /*! Adds a processor
     \param type GEB type to associate the processor with
     \param proc Pointer to the processor object
@@ -270,6 +312,13 @@ namespace DATOR {
         if (ts_mode == 1) { run_wt_offset = starttime; }
       }
       walltime = headers[subevt].timestamp * 10.0/(1e9*60.0);
+
+      if (false) {
+        printf("subevt = %i\n", subevt);
+        printf("type = %d\n", headers[subevt].type);
+        printf("length = %d\n", headers[subevt].length);
+        printf("timestamp = %ld\n", headers[subevt].timestamp);
+      }
         
       if (old_timestamp != -1) { 
         long long int dt = ((long long int)headers[subevt].timestamp - (long long int)old_timestamp)*10;
@@ -284,28 +333,29 @@ namespace DATOR {
         }  
       }
 
-      if (false) {
-        printf("subevt = %i\n", subevt);
-        printf("type = %d\n", headers[subevt].type);
-        printf("length = %d\n", headers[subevt].length);
-        printf("timestamp = %ld\n", headers[subevt].timestamp);
-      }
-      
       //HeaderType htype(static_cast<HeaderType>(headers[subevt].type));
 
       //read the payload
       if (headers[subevt].length > MAX_GEB_PAYLOAD) { std::cerr << "Severe error! GEB payload size " << headers[subevt].length << " > " << MAX_GEB_PAYLOAD << ". Increase MAX_GEB_PAYLOAD" << std::endl; exit(1); };
       if (headers[subevt].type > MAX_GEB_TYPE) { std::cerr << "Severe error! GEB type " << headers[subevt].type << " encountered. Incrase MAX_GEB_TYPE" << std::endl; exit(1); }
-      if (fCompressed) {
-        if (gzread(gDataFile, sub[subevt], headers[subevt].length) == 0) {
-          break;
-        }
+
+      if (fileBuffer) {
+        if ((buffPtr + headers[subevt].length/2) > fileSize/2) { break; }
+        std::memcpy(&sub[subevt], &buffer[buffPtr], headers[subevt].length);
+        buffPtr += headers[subevt].length/2;
       }
-      else {
-        if (fread(sub[subevt], headers[subevt].length, 1, DataFile) == 0) {
-          break;
+      else { 
+        if (fCompressed) {
+          if (gzread(gDataFile, sub[subevt], headers[subevt].length) == 0) {
+            break;
+          }
         }
-      }
+        else {
+          if (fread(sub[subevt], headers[subevt].length, 1, DataFile) == 0) {
+            break;
+          }
+        }
+      } 
 
       nGEBTypes[headers[subevt].type]++;
       //process the payload
@@ -320,18 +370,26 @@ namespace DATOR {
       
       old_timestamp = headers[subevt].timestamp;
       ++subevt;
-      if (fCompressed) {
-        if (gzread(gDataFile, &headers[subevt], sizeof(headers[subevt])) == 0) {
-          eof = true;
-          break;
-        }
+      if (fileBuffer) {
+        if ((buffPtr + sizeof(headers[subevt])/2) > fileSize/2) { break; }
+        std::memcpy(&headers[subevt], &buffer[buffPtr], sizeof(headers[subevt]));
+        buffPtr += sizeof(headers[subevt])/2;
       }
-      else {
-        if (fread(&headers[subevt], sizeof(headers[subevt]), 1, DataFile) == 0) {
-          eof = true;
-          break;
+      else { 
+        if (fCompressed) {
+          if (gzread(gDataFile, &headers[subevt], sizeof(headers[subevt])) == 0) {
+            eof = true;
+            break;
+          }
         }
-      }
+        else {
+          if (fread(&headers[subevt], sizeof(headers[subevt]), 1, DataFile) == 0) {
+            eof = true;
+            break;
+          }
+        }
+      } 
+
       if (subevt >= MAX_GEB_SUBEVTS-1) { std::cerr << "Severe error! Number of sub-events > " << MAX_GEB_SUBEVTS << ". Increase MAX_GEB_SUBEVTS" << std::endl; break; }
     }  //end subevent loop
 

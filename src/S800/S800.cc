@@ -340,12 +340,22 @@ namespace S800 {
     //we require valid Mesytec TDC values for E1 up/down and obj and xfp
     if (mtdc.validTimes[0] == 0 ) { validCode = 100; valid = false; return 0; }
     if (mtdc.validTimes[1] == 0 ) { validCode = 101; valid = false; return 0; }
-    if (mtdc.validTimes[2] == 0 ) { validCode = 102; valid = false; return 0; }
+
+    //this function also calculates adopted obj and xfp times
+    if ((mtdc.validTimes[0] - mtdc.validTimes[1]) < 860 ) { valid = false; validCode = 21; return 0; }
+    if ((mtdc.validTimes[0] - mtdc.validTimes[1]) > 1050) { valid = false; validCode = 21; return 0; }
+
+    //x-dependent adjustment to E1 down time
+    //e1dn = mtdc.validTimes[1] + crdcs[1].GetXCal()*0.22762508 + 926.7319;
+    e1up = mtdc.validTimes[0];
+      
+    double tav = (mtdc.validTimes[0] + e1dn)/2.;
+
     if (mtdc.validTimes[3] == 0 ) { validCode = 103; valid = false; return 0; }
+    obj = mtdc.validTimes[3] - tav;
 
     if (mtdc.validTimes[0] < 0 ) { validCode = 150; valid = false; return 0; }
     if (mtdc.validTimes[1] < 0 ) { validCode = 151; valid = false; return 0; }
-    if (mtdc.validTimes[2] < 0 ) { validCode = 152; valid = false; return 0; }
     if (mtdc.validTimes[3] < 0 ) { validCode = 153; valid = false; return 0; }
       
     //std::cout << "invalid times" << std::endl;
@@ -366,20 +376,19 @@ namespace S800 {
     crdcs[1].SetXCal();
     crdcs[1].SetYCal();
 
-    //this function also calculates adopted obj and xfp times
-    if ((mtdc.validTimes[0] - mtdc.validTimes[1]) < 860 ) { valid = false; validCode = 21; return 0; }
-    if ((mtdc.validTimes[0] - mtdc.validTimes[1]) > 1050) { valid = false; validCode = 21; return 0; }
+    //xfp, sometimes not here
+    if (mtdc.validTimes[2] < 0 ) { validCode = 152; valid = false; return 0; }
+    if (mtdc.validTimes[2] == 0 ) { validCode = 102; valid = false; return 0; }
+    xfp = mtdc.validTimes[2] - tav;
 
-    //x-dependent adjustment to E1 down time
-    //e1dn = mtdc.validTimes[1] + crdcs[1].GetXCal()*0.22762508 + 926.7319;
+    //recalculate when valid x is present
     e1dn = mtdc.validTimes[1] + crdcs[1].GetXCal()*conf.e1dn_slope + conf.e1dn_offset;
-    e1up = mtdc.validTimes[0];
-      
-    double tav = (mtdc.validTimes[0] + e1dn)/2.;
-    //double tav = mtdc.validTimes[0];
-    //std::cout << mtdc.validTimes[0] << "   " << tav << std::endl;
+    tav = (mtdc.validTimes[0] + e1dn)/2.;
     obj = mtdc.validTimes[3] - tav;
     xfp = mtdc.validTimes[2] - tav;
+
+    //double tav = mtdc.validTimes[0];
+    //std::cout << mtdc.validTimes[0] << "   " << tav << std::endl;
 
     nValidS800 += 1;
     if (ionChamber.insideROI == true) {

@@ -46,25 +46,36 @@ namespace Orruba {
       m_targ_MeV = m_targ * 931.478;
       m_eject_MeV = m_eject * 931.478;
       m_rec_MeV = m_rec * 931.478;
-
-      p_beam = std::sqrt(beam_en*beam_en + 2.0*m_beam*beam_en);
     }
       
-    double getExRel(double energy, double theta) {        
+    double getExRel(double energy, double theta, double &rec_theta, double &rec_vc) {        
+      double e_total = beam_en + m_beam_MeV + m_targ_MeV; //total energy in system
 
-      double p_eject = std::sqrt(energy*energy + 2.0*m_eject_MeV*energy);
-      double e_beam = beam_en + m_beam_MeV; //total energy
-      double e_eject = m_eject_MeV + energy; //total energy 
+      double e_eject = m_eject_MeV + energy; //total energy, from measured ejectile
+      p_eject = std::sqrt(energy*energy + 2.0*m_eject_MeV*energy);
+      double kin_eject = e_eject - m_eject_MeV;
 
-      double e_rec = e_beam+m_targ_MeV-e_eject;
-
+      double e_beam = beam_en + m_beam_MeV; //total energy, from presumed beam energy
       p_beam = std::sqrt(beam_en*beam_en + 2.0*m_beam_MeV*beam_en);
-
-      double relQval = m_beam_MeV + m_targ_MeV - m_eject_MeV
+      
+      //calculate Q value
+      double Q = m_beam_MeV + m_targ_MeV - m_eject_MeV
         - std::sqrt(m_beam_MeV*m_beam_MeV + m_targ_MeV*m_targ_MeV + m_eject_MeV*m_eject_MeV + 2.0*m_targ_MeV*e_beam -
                     2.0*e_eject*(e_beam + m_targ_MeV) + 2.*p_beam*p_eject*std::cos(theta));
 
-      return (Q_gs-relQval);
+      //use Q value to get recoidl energy/momentum
+      double kin_rec = e_total - e_eject - (m_beam_MeV + m_targ_MeV - m_eject_MeV - Q);
+      double p_rec = std::sqrt(kin_rec*kin_rec + 2.0*m_rec_MeV*kin_rec);
+      
+      //get recoil angle
+      double sinEta = (p_eject/p_rec)*std::sin(theta);
+      rec_theta = std::asin(sinEta);
+
+      //get recoil v/c
+      double gamma = (m_rec_MeV + kin_rec)/m_rec_MeV;
+      rec_vc = std::sqrt(1-(1/(gamma*gamma)));
+
+      return (Q_gs-Q);
     }
 
     double getExNonRel(double energy, double theta) {
@@ -107,6 +118,8 @@ namespace Orruba {
     float r_E_barrel = 100.2;
     float sx3width = 40.0;
     float sx3zoffset = 2.0; //active area from z=0 offset
+    
+    float nsig = 5.0; //number of sigma difference in rawratio distribution to allow
 
     Configuration();
     Configuration(std::string filename);
@@ -117,6 +130,7 @@ namespace Orruba {
     void ReadCalibration(std::string filename);
     void ReadPositionCalibration(std::string filename);
     void ReadRadii(std::string filename);
+    void ReadRawRatio(std::string filename);
     void SetThresholds(float thresh);
     void SetThresholds(int chan, float thresh);
     void SetThresholds(DetType type, float thresh);
@@ -276,6 +290,24 @@ namespace Orruba {
     int AddQQQ5(unsigned short int channel, unsigned short int value);
     int AddSX3(unsigned short int channel, unsigned short int value);
     int AddBB10(unsigned short int channel, unsigned short int value);
+    void ResetCounters() {
+      nQQQ5Hits=0;
+      nSX3Hits=0;
+      nBB10Hits=0;
+      nQQQ5HitsTh=0;
+      nSX3HitsTh=0;
+      nBB10HitsTh=0;
+      nQQQ5Particles=0;
+      nSX3Particles=0;
+      nBB10Particles=0;
+      nQQQ5Evts=0;
+      nSX3Evts=0;
+      nBB10Evts=0;
+      nBadQQQ5Evts=0;
+      nBadSX3Evts=0;
+      nBadBB10Evts=0;
+      nSpuriousMyRIAD=0;
+    }
     void Reset() { 
       sx3s.clear(); qqq5s.clear(); bb10s.clear(); tracker.Reset(); tdc.Reset(); 
       for (int i=0; i<single_parts.size(); ++i) {

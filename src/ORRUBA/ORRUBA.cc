@@ -19,20 +19,23 @@ namespace Orruba {
     unsigned int w2 = (timestamp & 0xFFFF0000) >> 16;
     unsigned int w3 = (timestamp & 0xFFFF);
 
+    SpuriousMyRIAD = false;
     if (w1 == w2 && w1 == w3) {
       SpuriousMyRIAD = true;
       nSpuriousMyRIAD += 1;
     }    
 
-    nhits = length/4;
-    chans.clear();
-    vals.clear();
-    for (int i=0; i<nhits; ++i) {
-      if (data[2*i] == 0xFFFF && data[2*i+1] == 0xFFFF) { nhits = i; break; }
-      chans.push_back(data[2*i] & 0x7FFF);
-      vals.push_back(data[2*i+1]);
+    if (!SpuriousMyRIAD) {
+      nhits = length/4;
+      chans.clear();
+      vals.clear();
+      for (int i=0; i<nhits; ++i) {
+        if (data[2*i] == 0xFFFF && data[2*i+1] == 0xFFFF) { nhits = i; break; }
+        chans.push_back(data[2*i] & 0x7FFF);
+        vals.push_back(data[2*i+1]);
+      }
+      Set();
     }
-    Set();
   }
 
   void Basic::Process(unsigned long long int ts,
@@ -124,6 +127,29 @@ namespace Orruba {
         qqq5cals[det-1].secoff[sector][ring] = secoff;
         qqq5cals[det-1].secgain[sector][ring] = secgain;
       }      
+    }
+  }
+
+  void Configuration::ReadRawRatio(std::string filename) {
+    std::ifstream file(filename.c_str());
+    std::string line;
+    while (std::getline(file, line)) {
+      if (line.size() == 0) { continue; }
+      if (line[0] == '#') { continue; }
+      if (line[0] == ';') { continue; }
+
+      std::stringstream ss(line);
+
+      std::string type;
+      ss >> type;
+
+      int det, pad, strip ;
+      double mean, stddev;
+      if (!type.compare("SX3")) {
+        ss >> det >> pad >> strip >> mean >> stddev;
+        sx3cals[det-1].raw_ratio_ref[pad][strip] = mean;
+        sx3cals[det-1].raw_ratio_stddev[pad][strip] = stddev;
+      }
     }
   }
 
@@ -268,9 +294,7 @@ namespace Orruba {
       }
       else if (conf.types[chan-1] == DetType::Track) {
         tracker.Set(chan, val);
-      } else if (conf.types[chan-1] == DetType::TDC) {
-        tdc.SetChan(chan, val);
-      }
+      } 
       else if (conf.types[chan-1] == DetType::TDC) {
         tdc.SetChan(chan, val);
       }
@@ -282,7 +306,8 @@ namespace Orruba {
     nSX3Particles += sx3parts;
 
     for (int i=0; i<qqq5s.size(); ++i) {
-      qqq5parts += qqq5s[i].MakeParticles(single_parts);
+      int parts = qqq5s[i].MakeParticles(single_parts);
+      qqq5parts += parts;
     }
     nQQQ5Particles += qqq5parts;
     
@@ -300,22 +325,24 @@ namespace Orruba {
     if (bb10evt && bb10parts == 0) {
       nBadBB10Evts += 1;
     }
-    nQQQ5Particles += qqq5parts;
-    if (qqq5parts*2 > qqq5hitsth) { std::cout << "In this event there are " << qqq5parts << " reconstructed QQQ5 particles but only " << qqq5hitsth << " hits above threshold" << std::endl; }
-
-    for (int i=0; i<bb10s.size(); ++i) {
-      bb10parts += bb10s[i].MakeParticles(single_parts);
-    }
-    nBB10Particles += bb10parts;
-
-    if (sx3evt && sx3parts == 0) {
-      nBadSX3Evts += 1;
-    }
-    if (qqq5evt && qqq5parts == 0) {
-      nBadQQQ5Evts += 1;
-    }
-    if (bb10evt && bb10parts == 0) {
-      nBadBB10Evts += 1;
+    if (qqq5parts*2 > qqq5hitsth) { 
+      std::cout << "In this event there are " << qqq5parts << " reconstructed QQQ5 particles but only " << qqq5hitsth << " hits above threshold" << std::endl; 
+      std::cout << qqq5s.size() << std::endl;
+      for (int i=0; i<qqq5s.size(); ++i) {
+        std::cout << i << "  " << qqq5s[i].ID << "  " << qqq5s[i].frontHits.size() << "  " << qqq5s[i].backHits.size() << std::endl;
+        for (int j=0; j<qqq5s[i].frontHits.size(); ++j) {
+          std::cout << "fh: " << j << " : " << qqq5s[i].frontHits[j].ID << "  " << qqq5s[i].frontHits[j].cal << std::endl;
+        }
+        for (int j=0; j<qqq5s[i].backHits.size(); ++j) {
+          std::cout << "bh: " << j << " : " << qqq5s[i].backHits[j].ID << "  " << qqq5s[i].backHits[j].cal << std::endl;
+        }
+      }
+      for (int i=0; i<single_parts.size(); ++i) {
+        if (single_parts[i]->detType == DetType::QQQ5) {
+          std::cout << single_parts[i]->detID << "  " << single_parts[i]->frontID << "  " << single_parts[i]->backID << std::endl;
+        } 
+      }
+      exit(1);
     }
 
     tracker.presentX = 0;
@@ -357,6 +384,8 @@ namespace Orruba {
     }
     if (((float)value-conf.pedestal[channel-1]) > conf.threshold[channel-1]) {
       sx3s.emplace_back(channel, value);
+      int ID = sx3s[sx3s.size()-1].ID;
+      sx3s[sx3s.size()-1].cal = &(conf.sx3cals[ID-1]); 
       retval = 1;
     }
     nSX3Hits += 1;

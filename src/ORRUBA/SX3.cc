@@ -46,9 +46,9 @@ namespace Orruba {
   SX3Particle::SX3Particle(DetType dt, unsigned short int did,
                 unsigned short int pid, unsigned short int sid,
                 unsigned short int lay,
-                float pe, float sl, float sr, float pos, bool val) :
-      SingleParticle(dt, did, sid, pid, lay, sl + sr, pe, val),
-      stripL(sl), stripR(sr), position(pos) {}
+                float pe, float fs, float sl, float sr, float rpos, float pos, bool val) :
+      SingleParticle(dt, did, sid, pid, lay, fs, pe, val),
+      stripL(sl), stripR(sr), rawpos(rpos), position(pos) {}
   
   void SX3Particle::MakeCoords(SX3 *detector) {
     //this r is in the cylindrical coordinate system
@@ -94,12 +94,18 @@ namespace Orruba {
     float stripLcal = 0;
     float stripRcal = 0;
 
+    std::vector<bool> matchedFront(frontHits.size(), false);
+    std::vector<bool> matchedBack(backHits.size(), false);
+    int nMatched = 0;
+
     for (int i=0; i<frontHits.size(); ++i) {
       int subID1 = frontHits[i].ID;
       int end1 = frontHits[i].side;
+      if (matchedFront[i]) { continue; }
       for (int j=i+1; j<frontHits.size(); ++j) {
         int subID2 = frontHits[j].ID;
         int end2 = frontHits[j].side;
+        if (matchedFront[j]) { continue; }
         if (subID1 == subID2) {
           if (end1 == 1 && end2 == 0) {
             frontPairs += 1;
@@ -119,12 +125,63 @@ namespace Orruba {
             stripRcal = frontHits[j].cal;
             frontSum = frontHits[i].cal + frontHits[j].cal;
           }
+          if ((end1 + end2) == 1) {
+            for (int k=0; k<backHits.size(); ++k) {
+              if (matchedBack[k]) { continue; }
+              double raw_ratio = (stripL + stripR)/backHits[k].value;
+              double mean = cal->raw_ratio_ref[backHits[k].ID][subID1];
+              double stddev = cal->raw_ratio_stddev[backHits[k].ID][subID1];
+              if ((raw_ratio > mean-Event::conf.nsig*stddev) && (raw_ratio < mean+Event::conf.nsig*stddev)) { 
+                int padID = backHits[k].ID;
+                float padEnergy = backHits[k].value;
+                matchedFront[i] = true;
+                matchedFront[j] = true;
+                matchedBack[k] = true;
+                nMatched += 1;
+
+                //now we have matched, do calibrations
+                float padgain = Event::conf.sx3cals[ID-1].padgain[padID][stripID];
+                float padoff = Event::conf.sx3cals[ID-1].padoff[padID][stripID];
+
+                float stripLgain = Event::conf.sx3cals[ID-1].stripgain[0][padID][stripID];
+                float stripLoff = Event::conf.sx3cals[ID-1].stripoff[0][padID][stripID];
+
+                float stripRgain = Event::conf.sx3cals[ID-1].stripgain[1][padID][stripID];
+                float stripRoff = Event::conf.sx3cals[ID-1].stripoff[1][padID][stripID];
+
+                padEnergy = padEnergy*padgain + padoff;
+                frontSum = stripL*stripLgain + stripLoff + stripR*stripRgain + stripRoff;
+                //check energy equivalence
+                float rawpos = (stripRcal - stripLcal)/(stripRcal + stripLcal);
+                pos = (rawpos - Event::conf.sx3cals[ID-1].stripPosOffset[stripID])*Event::conf.sx3cals[ID-1].stripPosGain[stripID] + Event::conf.sx3zoffset;
+                //if (frontSum==0) { return 0; }
+
+                bool valid = true;
+                //bool valid = (padEnergy/frontSum  >= 0.95 && padEnergy/frontSum <= 1.05);
+                
+                SX3Particle *part = new SX3Particle(DetType::SX3, ID,
+                    padID, stripID,
+                    layer,
+                    padEnergy, frontSum, stripL, stripR, rawpos, pos*uds, valid);
+                part->SetRaw(backHits[k].value, stripL, stripR);
+                part->MakeCoords(this);
+                single_parts.push_back(part);
+              }
+              //cal->raw_ratio_n[backHits[k].ID][subID1]++;
+              //cal->raw_ratio_mean[backHits[k].ID][subID1]+= raw_ratio;
+              //cal->raw_ratio_mean2[backHits[k].ID][subID1]+= raw_ratio*raw_ratio;
+            }
+          }
         }
       }
     }
+    //return nMatched;
+    // old method
+    int oldMatched = 0;
     int validBacks = 0;
     float padEnergy = 0;
     int padID = 0;
+    double rawratio = 0;
     for (int i=0; i<backHits.size(); ++i) {
       if (backHits[i].cal > 250.0) {
         validBacks += 1;
@@ -141,6 +198,7 @@ namespace Orruba {
           closest = abs(backHits[i].cal - frontSum);
           padID = backHits[i].ID;
           padEnergy = backHits[i].value;
+          rawratio = (stripL + stripR)/padEnergy;
         }
       }
       
@@ -162,16 +220,20 @@ namespace Orruba {
       if (frontSum==0) { return 0; }
       
       bool valid = (padEnergy/frontSum  >= 0.95 && padEnergy/frontSum <= 1.05);
+      oldMatched = 1;
 
-      SX3Particle *part = new SX3Particle(DetType::SX3, ID,
-                                          padID, stripID,
-                                          layer,
-                                          padEnergy, stripL, stripR, pos*uds, valid);
-      part->MakeCoords(this);
-      single_parts.push_back(part);
-      return 1;
+      //SX3Particle *part = new SX3Particle(DetType::SX3, ID,
+      //                                    padID, stripID,
+      //                                    layer,
+      //                                    padEnergy, frontSum, stripL, stripR, pos*uds, valid);
+      //part->MakeCoords(this);
+      //single_parts.push_back(part);
+      //return 1;
+      //if (nMatched == 0 && oldMatched == 1) {
+      //  std::cout << ID << "   " << padID << "  " << stripID << "  " << frontHits.size() << "  " << backHits.size() << "  " << frontSum/padEnergy << "  " << rawratio << std::endl;
+      //} 
     }
-    else { return 0; }
+    return nMatched;
   }
 }
 

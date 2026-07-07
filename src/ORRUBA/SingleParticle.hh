@@ -21,6 +21,10 @@ class SingleParticle  {
 
     float frontEnergy;
     float backEnergy;
+
+    float raw_back;
+    float raw_frontL;
+    float raw_frontR;
       
     bool valid;
 
@@ -41,9 +45,10 @@ class SingleParticle  {
                    unsigned short int lay,
                    float fe, float be, bool val) :
       detType(dt), detID(did), frontID(fid), backID(bid), layer(lay),
-      frontEnergy(fe), backEnergy(be), valid(val) {};
+      frontEnergy(fe), backEnergy(be), valid(val), raw_back(0), raw_frontL(0), raw_frontR(0) {};
 
     void OffsetBeam(float beamx, float beamy, bool verbose=false);
+    void SetRaw(int rb, int rl, int rr) { raw_back = rb; raw_frontL = rl; raw_frontR = rr; }
     
   };
 }
